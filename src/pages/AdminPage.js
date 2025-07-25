@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FiPlus, FiEdit, FiTrash2, FiPackage, FiUsers, FiLogOut, FiUpload } from 'react-icons/fi';
-import Swal from 'sweetalert2';
+import { FiPlus, FiEdit, FiTrash2, FiEye, FiShield, FiLogOut, FiPackage, FiShoppingCart, FiUsers, FiUpload } from 'react-icons/fi';
 import { productsService, ordersService, imageService } from '../services/firebaseService';
+import Swal from 'sweetalert2';
 
-const AdminPage = () => {
+const AdminPage = React.memo(() => {
   const [activeTab, setActiveTab] = useState('add-product');
   const [products, setProducts] = useState([]);
   const [orders, setOrders] = useState([]);
@@ -428,44 +428,45 @@ const AdminPage = () => {
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Navigation Tabs */}
-        <div className="bg-dark-card rounded-lg shadow-sm mb-8 border border-dark-border">
-          <div className="border-b border-dark-border">
-            <nav className="flex space-x-8 px-6">
-              <button
-                onClick={() => setActiveTab('add-product')}
-                className={`py-4 px-2 border-b-2 font-medium text-sm ${
-                  activeTab === 'add-product'
-                    ? 'border-white text-white'
-                    : 'border-transparent text-white hover:text-gray-300 hover:border-gray-600'
-                }`}
-              >
-                <FiPlus className="inline mr-2" />
-                {editingProduct ? 'Edit Product' : 'Add Product'}
-              </button>
-              <button
-                onClick={() => setActiveTab('manage-products')}
-                className={`py-4 px-2 border-b-2 font-medium text-sm ${
-                  activeTab === 'manage-products'
-                    ? 'border-white text-white'
-                    : 'border-transparent text-white hover:text-gray-300 hover:border-gray-600'
-                }`}
-              >
-                <FiPackage className="inline mr-2" />
-                Manage Products
-              </button>
-              <button
-                onClick={() => setActiveTab('orders')}
-                className={`py-4 px-2 border-b-2 font-medium text-sm ${
-                  activeTab === 'orders'
-                    ? 'border-white text-white'
-                    : 'border-transparent text-white hover:text-gray-300 hover:border-gray-600'
-                }`}
-              >
-                <FiUsers className="inline mr-2" />
-                Orders ({orders.length})
-              </button>
-            </nav>
-          </div>
+        <div className="border-b border-gray-200 mb-8">
+          <nav className="-mb-px flex flex-wrap justify-center md:justify-start space-x-2 md:space-x-8">
+            <button
+              onClick={() => setActiveTab('add-product')}
+              className={`py-3 px-3 md:py-4 md:px-2 border-b-2 font-medium text-sm whitespace-nowrap ${
+                activeTab === 'add-product'
+                  ? 'border-white text-white'
+                  : 'border-transparent text-white hover:text-gray-300 hover:border-gray-600'
+              }`}
+            >
+              <FiPlus className="inline mr-1 md:mr-2" size={16} />
+              <span className="hidden sm:inline">Add Product</span>
+              <span className="sm:hidden">Add</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('manage-products')}
+              className={`py-3 px-3 md:py-4 md:px-2 border-b-2 font-medium text-sm whitespace-nowrap ${
+                activeTab === 'manage-products'
+                  ? 'border-white text-white'
+                  : 'border-transparent text-white hover:text-gray-300 hover:border-gray-600'
+              }`}
+            >
+              <FiPackage className="inline mr-1 md:mr-2" size={16} />
+              <span className="hidden sm:inline">Manage Products</span>
+              <span className="sm:hidden">Manage</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('orders')}
+              className={`py-3 px-3 md:py-4 md:px-2 border-b-2 font-medium text-sm whitespace-nowrap ${
+                activeTab === 'orders'
+                  ? 'border-white text-white'
+                  : 'border-transparent text-white hover:text-gray-300 hover:border-gray-600'
+              }`}
+            >
+              <FiShoppingCart className="inline mr-1 md:mr-2" size={16} />
+              <span className="hidden sm:inline">Orders</span>
+              <span className="sm:hidden">Orders</span>
+            </button>
+          </nav>
         </div>
 
         {/* Tab Content */}
@@ -555,8 +556,8 @@ const AdminPage = () => {
                       onClick={() => handleSizeChange(size)}
                       className={`px-3 py-1 rounded-md border-2 transition-all ${
                         (productForm && productForm.sizes && productForm.sizes.includes(size))
-                          ? 'border-white bg-white text-black'
-                          : 'border-gray-300 hover:border-white'
+                          ? 'border-dark-bg bg-dark-bg text-white'
+                          : 'border-gray-300 hover:border-white text-black bg-gray-100'
                       }`}
                     >
                       {size}
@@ -577,8 +578,8 @@ const AdminPage = () => {
                       onClick={() => handleColorChange(color)}
                       className={`px-3 py-1 rounded-md border-2 transition-all ${
                         (productForm && productForm.colors && productForm.colors.includes(color))
-                          ? 'border-white bg-white text-black'
-                          : 'border-gray-300 hover:border-white'
+                          ? 'border-dark-bg bg-dark-bg text-white'
+                          : 'border-gray-300 hover:border-white text-black bg-gray-100'
                       }`}
                     >
                       {color}
@@ -675,7 +676,7 @@ const AdminPage = () => {
         )}
 
         {activeTab === 'manage-products' && (
-          <div className="bg-white rounded-lg shadow-sm p-6">
+          <div className="bg-white rounded-lg shadow-sm p-4 md:p-6">
             <h2 className="text-xl font-bold text-dark-gray mb-6">Manage Products</h2>
             
             {products.length === 0 ? (
@@ -684,87 +685,153 @@ const AdminPage = () => {
                 <p className="text-gray-500">No products available</p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Product
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Category
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Price
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Actions
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {products.map((product) => (
-                      <tr key={product.id}>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center">
-                            <div className="flex space-x-1 mr-4">
-                              {product.images && product.images.length > 0 ? (
-                                product.images.slice(0, 3).map((image, index) => (
-                                  <img
-                                    key={index}
-                                    src={image}
-                                    alt={`${product.name} ${index + 1}`}
-                                    className="w-10 h-10 object-contain rounded border-2 border-gray-200"
-                                  />
-                                ))
-                              ) : (
-                                <div className="w-10 h-10 bg-gray-200 rounded flex items-center justify-center">
-                                  <span className="text-gray-400 text-xs">No Image</span>
-                                </div>
-                              )}
-                              {product.images && product.images.length > 3 && (
-                                <div className="w-10 h-10 bg-gray-100 rounded flex items-center justify-center">
-                                  <span className="text-gray-500 text-xs">+{product.images.length - 3}</span>
-                                </div>
-                              )}
-                            </div>
-                            <div>
-                              <div className="text-sm font-medium text-gray-900">
-                                {product.name}
-                              </div>
-                              <div className="text-sm text-gray-500">
-                                {(product.colors || []).join(', ')} • {(product.sizes || []).join(', ')}
-                              </div>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {categories.find(c => c.value === product.category)?.label}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {product.price} LE
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                          <div className="flex space-x-2 space-x-reverse">
-                            <button
-                              onClick={() => handleEditProduct(product)}
-                              className="text-blue-600 hover:text-blue-900"
-                            >
-                              <FiEdit size={18} />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteProduct(product.id)}
-                              className="text-red-600 hover:text-red-900"
-                            >
-                              <FiTrash2 size={18} />
-                            </button>
-                          </div>
-                        </td>
+              <>
+                {/* Desktop Table View */}
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Product
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Category
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Price
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Actions
+                        </th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {products.map((product) => (
+                        <tr key={product.id}>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="flex items-center">
+                              <div className="flex space-x-1 mr-4">
+                                {product.images && product.images.length > 0 ? (
+                                  product.images.slice(0, 3).map((image, index) => (
+                                    <img
+                                      key={index}
+                                      src={image}
+                                      alt={`${product.name} ${index + 1}`}
+                                      className="w-10 h-10 object-contain rounded border-2 border-gray-200"
+                                    />
+                                  ))
+                                ) : (
+                                  <div className="w-10 h-10 bg-gray-200 rounded flex items-center justify-center">
+                                    <span className="text-gray-400 text-xs">No Image</span>
+                                  </div>
+                                )}
+                                {product.images && product.images.length > 3 && (
+                                  <div className="w-10 h-10 bg-gray-100 rounded flex items-center justify-center">
+                                    <span className="text-gray-500 text-xs">+{product.images.length - 3}</span>
+                                  </div>
+                                )}
+                              </div>
+                              <div>
+                                <div className="text-sm font-medium text-gray-900">
+                                  {product.name}
+                                </div>
+                                <div className="text-sm text-gray-500">
+                                  {(product.colors || []).join(', ')} • {(product.sizes || []).join(', ')}
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {categories.find(c => c.value === product.category)?.label}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {product.price} LE
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                            <div className="flex space-x-2">
+                              <button
+                                onClick={() => handleEditProduct(product)}
+                                className="text-blue-600 hover:text-blue-900 p-1"
+                                title="Edit Product"
+                              >
+                                <FiEdit size={16} />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteProduct(product.id)}
+                                className="text-red-600 hover:text-red-900 p-1"
+                                title="Delete Product"
+                              >
+                                <FiTrash2 size={16} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile Card View */}
+                <div className="md:hidden space-y-4">
+                  {products.map((product) => (
+                    <div key={product.id} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                      <div className="flex items-start space-x-3">
+                        {/* Product Image */}
+                        <div className="flex-shrink-0">
+                          {product.images && product.images.length > 0 ? (
+                            <img
+                              src={product.images[0]}
+                              alt={product.name}
+                              className="w-16 h-16 object-contain rounded border-2 border-gray-200"
+                            />
+                          ) : (
+                            <div className="w-16 h-16 bg-gray-200 rounded flex items-center justify-center">
+                              <span className="text-gray-400 text-xs">No Image</span>
+                            </div>
+                          )}
+                        </div>
+                        
+                        {/* Product Info */}
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-sm font-medium text-gray-900 truncate">
+                            {product.name}
+                          </h3>
+                          <p className="text-sm text-gray-500 mt-1">
+                            {categories.find(c => c.value === product.category)?.label}
+                          </p>
+                          <p className="text-sm font-semibold text-gray-900 mt-1">
+                            {product.price} LE
+                          </p>
+                          <div className="text-xs text-gray-500 mt-1">
+                            Colors: {(product.colors || []).join(', ') || 'N/A'}
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            Sizes: {(product.sizes || []).join(', ') || 'N/A'}
+                          </div>
+                        </div>
+                        
+                        {/* Actions */}
+                        <div className="flex flex-col space-y-2">
+                          <button
+                            onClick={() => handleEditProduct(product)}
+                            className="text-blue-600 hover:text-blue-900 p-2 bg-white rounded-md border border-gray-200"
+                            title="Edit Product"
+                          >
+                            <FiEdit size={16} />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteProduct(product.id)}
+                            className="text-red-600 hover:text-red-900 p-2 bg-white rounded-md border border-gray-200"
+                            title="Delete Product"
+                          >
+                            <FiTrash2 size={16} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
             )}
           </div>
         )}
@@ -859,6 +926,6 @@ const AdminPage = () => {
       </main>
     </div>
   );
-};
+});
 
 export default AdminPage;
