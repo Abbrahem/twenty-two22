@@ -3,14 +3,15 @@ const { getFirestore, connectFirestoreEmulator } = require('firebase/firestore')
 const { getStorage, connectStorageEmulator } = require('firebase/storage');
 const { getAuth, connectAuthEmulator } = require('firebase/auth');
 
-// Firebase configuration
+// Firebase configuration - Updated to match frontend
 const firebaseConfig = {
-  apiKey: process.env.FIREBASE_API_KEY || "AIzaSyDg3FzR2QQti8ZzvKBtZxTeOUTGhjEiUM4",
-  authDomain: process.env.FIREBASE_AUTH_DOMAIN || "kenzo-store.firebaseapp.com",
-  projectId: process.env.FIREBASE_PROJECT_ID || "kenzo-store",
-  storageBucket: process.env.FIREBASE_STORAGE_BUCKET || "kenzo-store.appspot.com",
-  messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID || "306574791255",
-  appId: process.env.FIREBASE_APP_ID || "1:306574791255:web:c7a0324c1be85989780912"
+  apiKey: process.env.FIREBASE_API_KEY || "AIzaSyARjm7SEIhd3aJUK7uqunX6pwUw25IO2PQ",
+  authDomain: process.env.FIREBASE_AUTH_DOMAIN || "fisha-3bd1e.firebaseapp.com",
+  projectId: process.env.FIREBASE_PROJECT_ID || "fisha-3bd1e",
+  storageBucket: process.env.FIREBASE_STORAGE_BUCKET || "fisha-3bd1e.firebasestorage.app",
+  messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID || "892167111455",
+  appId: process.env.FIREBASE_APP_ID || "1:892167111455:web:99569e259a1791a144262a",
+  measurementId: process.env.FIREBASE_MEASUREMENT_ID || "G-656XY74CM8"
 };
 
 // Validate required Firebase config

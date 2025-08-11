@@ -2,6 +2,7 @@ import {
   collection, 
   addDoc, 
   getDocs, 
+  getDoc,
   doc, 
   updateDoc, 
   deleteDoc, 
@@ -92,6 +93,31 @@ export const productsService = {
 
 // Orders Service
 export const ordersService = {
+  // Test Firebase connection
+  async testConnection() {
+    try {
+      const testRef = collection(db, 'test');
+      await getDocs(testRef);
+      return true;
+    } catch (error) {
+      console.error('Firebase connection test failed:', error);
+      return false;
+    }
+  },
+
+  // Test orders collection access
+  async testOrdersAccess() {
+    try {
+      const ordersRef = collection(db, 'orders');
+      const querySnapshot = await getDocs(ordersRef);
+      console.log(`Orders collection accessible. Found ${querySnapshot.size} orders.`);
+      return { success: true, orderCount: querySnapshot.size };
+    } catch (error) {
+      console.error('Orders collection access test failed:', error);
+      return { success: false, error: error.message };
+    }
+  },
+
   // Add a new order
   async addOrder(orderData) {
     try {
@@ -120,6 +146,27 @@ export const ordersService = {
     }
   },
 
+  // Get single order by ID
+  async getOrder(orderId) {
+    try {
+      if (!orderId) {
+        throw new Error('Order ID is required');
+      }
+      
+      const orderRef = doc(db, 'orders', orderId);
+      const orderSnap = await getDoc(orderRef);
+      
+      if (!orderSnap.exists()) {
+        throw new Error('Order not found');
+      }
+      
+      return { id: orderSnap.id, ...orderSnap.data() };
+    } catch (error) {
+      console.error('Error getting order:', error);
+      throw error;
+    }
+  },
+
   // Create new order
   async createOrder(orderData) {
     try {
@@ -139,13 +186,46 @@ export const ordersService = {
   // Update order status
   async updateOrderStatus(orderId, newStatus) {
     try {
+      if (!orderId) {
+        throw new Error('Order ID is required');
+      }
+      
+      if (!newStatus) {
+        throw new Error('New status is required');
+      }
+      
+      const validStatuses = ['pending', 'completed', 'delivered', 'cancelled'];
+      if (!validStatuses.includes(newStatus)) {
+        throw new Error(`Invalid status. Valid statuses: ${validStatuses.join(', ')}`);
+      }
+      
+      console.log(`Attempting to update order ${orderId} to status: ${newStatus}`);
+      
       const orderRef = doc(db, 'orders', orderId);
+      
+      // First check if the order exists
+      const orderSnap = await getDoc(orderRef);
+      if (!orderSnap.exists()) {
+        console.error(`Order ${orderId} not found in Firestore`);
+        throw new Error('Order not found');
+      }
+      
+      console.log(`Order ${orderId} found, current status: ${orderSnap.data().status}`);
+      
       await updateDoc(orderRef, {
         status: newStatus,
-        updatedAt: new Date()
+        updatedAt: new Date().toISOString()
       });
+      
+      console.log(`Order ${orderId} status updated successfully to: ${newStatus}`);
+      return { success: true, orderId, newStatus };
     } catch (error) {
       console.error('Error updating order status:', error);
+      console.error('Error details:', {
+        code: error.code,
+        message: error.message,
+        stack: error.stack
+      });
       throw error;
     }
   },

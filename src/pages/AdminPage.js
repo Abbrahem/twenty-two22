@@ -41,6 +41,18 @@ const AdminPage = React.memo(() => {
       return;
     }
 
+    // Test Firebase connection first
+    const testConnection = async () => {
+      try {
+        const isConnected = await ordersService.testConnection();
+        if (!isConnected) {
+          console.warn('Firebase connection test failed - using local fallback');
+        }
+      } catch (error) {
+        console.error('Connection test error:', error);
+      }
+    };
+
     // Load products and orders from Firebase Firestore
     const loadProducts = async () => {
       try {
@@ -66,8 +78,8 @@ const AdminPage = React.memo(() => {
       }
     };
 
+    testConnection();
     loadProducts();
-    loadOrders();
     loadOrders();
   }, [navigate]);
 
@@ -351,6 +363,16 @@ const AdminPage = React.memo(() => {
 
   const updateOrderStatus = async (orderId, newStatus) => {
     try {
+      // Show loading
+      Swal.fire({
+        title: 'Updating Order Status...',
+        text: 'Please wait while we update the order status',
+        allowOutsideClick: false,
+        didOpen: () => {
+          Swal.showLoading();
+        }
+      });
+
       // Update order status in Firebase
       await ordersService.updateOrderStatus(orderId, newStatus);
       
@@ -368,10 +390,52 @@ const AdminPage = React.memo(() => {
       });
     } catch (error) {
       console.error('Error updating order status:', error);
+      
+      // More detailed error message
+      let errorMessage = 'Failed to update order status. Please try again.';
+      if (error.code === 'permission-denied') {
+        errorMessage = 'Permission denied. Please check your admin access.';
+      } else if (error.code === 'not-found') {
+        errorMessage = 'Order not found. Please refresh the page.';
+      } else if (error.code === 'unavailable') {
+        errorMessage = 'Firebase service unavailable. Please check your internet connection.';
+      } else if (error.code === 'deadline-exceeded') {
+        errorMessage = 'Request timeout. Please try again.';
+      } else if (error.code === 'resource-exhausted') {
+        errorMessage = 'Firebase quota exceeded. Please try again later.';
+      } else if (error.message) {
+        errorMessage = `Error: ${error.message}`;
+      }
+      
+      // Try fallback to localStorage if Firebase fails
+      try {
+        const localOrders = JSON.parse(localStorage.getItem('orders') || '[]');
+        const updatedLocalOrders = localOrders.map(order => 
+          order.id === orderId ? { ...order, status: newStatus } : order
+        );
+        localStorage.setItem('orders', JSON.stringify(updatedLocalOrders));
+        
+        // Update local state
+        setOrders(prev => prev.map(order => 
+          order.id === orderId ? { ...order, status: newStatus } : order
+        ));
+        
+        Swal.fire({
+          icon: 'warning',
+          title: 'Order status updated (local)',
+          text: `Order status changed to ${newStatus} (saved locally due to connection issues)`,
+          showConfirmButton: false,
+          timer: 2000
+        });
+        return;
+      } catch (localError) {
+        console.error('Local fallback also failed:', localError);
+      }
+      
       Swal.fire({
         icon: 'error',
         title: 'Error',
-        text: 'Failed to update order status. Please try again.'
+        text: errorMessage
       });
     }
   };
@@ -838,7 +902,78 @@ const AdminPage = React.memo(() => {
 
         {activeTab === 'orders' && (
           <div className="bg-white rounded-lg shadow-sm p-6">
-            <h2 className="text-xl font-bold text-dark-gray mb-6">Orders</h2>
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-bold text-dark-gray">Orders</h2>
+              <div className="flex space-x-2">
+                <button
+                  onClick={async () => {
+                    try {
+                      const isConnected = await ordersService.testConnection();
+                      const ordersAccess = await ordersService.testOrdersAccess();
+                      
+                      let message = isConnected ? 'Firebase connection is working' : 'Firebase connection failed';
+                      if (ordersAccess.success) {
+                        message += `\nOrders collection accessible (${ordersAccess.orderCount} orders found)`;
+                      } else {
+                        message += `\nOrders collection access failed: ${ordersAccess.error}`;
+                      }
+                      
+                      Swal.fire({
+                        icon: isConnected && ordersAccess.success ? 'success' : 'warning',
+                        title: 'Connection Test',
+                        text: message,
+                        showConfirmButton: false,
+                        timer: 3000
+                      });
+                    } catch (error) {
+                      Swal.fire({
+                        icon: 'error',
+                        title: 'Connection Test Failed',
+                        text: error.message,
+                        showConfirmButton: false,
+                        timer: 2000
+                      });
+                    }
+                  }}
+                  className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm"
+                >
+                  Test Connection
+                </button>
+                {orders.length > 0 && (
+                  <button
+                    onClick={async () => {
+                      try {
+                        const firstOrder = orders[0];
+                        const orderDetails = await ordersService.getOrder(firstOrder.id);
+                        Swal.fire({
+                          icon: 'info',
+                          title: 'Order Details',
+                          html: `
+                            <div class="text-left">
+                              <p><strong>Order ID:</strong> ${orderDetails.id}</p>
+                              <p><strong>Status:</strong> ${orderDetails.status}</p>
+                              <p><strong>Customer:</strong> ${orderDetails.customerInfo?.name || 'N/A'}</p>
+                              <p><strong>Total:</strong> ${orderDetails.total || orderDetails.pricing?.total || 'N/A'} LE</p>
+                            </div>
+                          `,
+                          confirmButtonText: 'OK'
+                        });
+                      } catch (error) {
+                        Swal.fire({
+                          icon: 'error',
+                          title: 'Error',
+                          text: error.message,
+                          confirmButtonText: 'OK'
+                        });
+                      }
+                    }}
+                    className="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded text-sm"
+                  >
+                    Debug First Order
+                  </button>
+                )}
+              </div>
+            </div>
             
             {orders.length === 0 ? (
               <div className="text-center py-12">
