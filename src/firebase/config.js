@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
+import { getFirestore, enableIndexedDbPersistence } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import { getAuth } from 'firebase/auth';
 
@@ -19,6 +19,17 @@ const app = initializeApp(firebaseConfig);
 
 // Initialize Firestore
 export const db = getFirestore(app);
+
+// Enable offline persistence (best-effort)
+try {
+  enableIndexedDbPersistence(db).catch((err) => {
+    // eslint-disable-next-line no-console
+    console.warn('Firestore persistence not enabled:', err?.code || err?.message || err);
+  });
+} catch (e) {
+  // eslint-disable-next-line no-console
+  console.warn('Firestore persistence init error:', e);
+}
 
 // Initialize Storage
 export const storage = getStorage(app);

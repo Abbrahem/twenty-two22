@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
@@ -11,6 +11,9 @@ const ProductsPage = () => {
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [sortBy, setSortBy] = useState('name');
   const [viewMode, setViewMode] = useState('grid');
+  const [loading, setLoading] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const cursorRef = useRef(null);
 
   // Sample products - in real app, this would come from Firebase
   const sampleProducts = [
@@ -70,56 +73,63 @@ const ProductsPage = () => {
     }
   ];
 
-  useEffect(() => {
-    // Load products from Firebase Firestore
-    const loadProducts = async () => {
+  const loadProducts = async (reset = false) => {
+    if (loading) return;
+    setLoading(true);
+    try {
+      const page = await productsService.getProductsPaginated({
+        pageSize: 12,
+        cursor: reset ? null : cursorRef.current,
+        category: selectedCategory
+      });
+      const normalized = page.items.map(product => ({
+        ...product,
+        colors: product.colors || [],
+        sizes: product.sizes || [],
+        name: product.name || 'Unknown Product',
+        price: product.price || 0
+      }));
+      setProducts(prev => reset ? normalized : [...prev, ...normalized]);
+      setFilteredProducts(prev => reset ? normalized : [...prev, ...normalized]);
+      cursorRef.current = page.cursor;
+      setHasMore(page.hasMore);
+    } catch (error) {
+      // Fallback to localStorage if Firebase fails
       try {
-        const firebaseProducts = await productsService.getProducts();
-        if (firebaseProducts.length > 0) {
-          // Ensure all products have required properties
-          const validatedProducts = firebaseProducts.map(product => ({
-            ...product,
-            colors: product.colors || [],
-            sizes: product.sizes || [],
-            name: product.name || 'Unknown Product',
-            price: product.price || 0
-          }));
-          setProducts(validatedProducts);
-          setFilteredProducts(validatedProducts);
-        } else {
-          // If no products in Firebase, use sample data
-          setProducts(sampleProducts);
-          setFilteredProducts(sampleProducts);
-        }
-      } catch (error) {
-        console.error('Error loading products from Firebase:', error);
-        // Fallback to localStorage then sample data
-        const savedProducts = localStorage.getItem('products');
-        if (savedProducts) {
-          try {
-            const loadedProducts = JSON.parse(savedProducts);
-            const validatedProducts = loadedProducts.map(product => ({
-              ...product,
-              colors: product.colors || [],
-              sizes: product.sizes || [],
-              name: product.name || 'Unknown Product',
-              price: product.price || 0
-            }));
-            setProducts(validatedProducts);
-            setFilteredProducts(validatedProducts);
-          } catch (localError) {
-            setProducts(sampleProducts);
-            setFilteredProducts(sampleProducts);
-          }
-        } else {
-          setProducts(sampleProducts);
-          setFilteredProducts(sampleProducts);
-        }
+        const loadedProducts = JSON.parse(localStorage.getItem('products') || '[]');
+        const validatedProducts = loadedProducts.map(product => ({
+          ...product,
+          colors: product.colors || [],
+          sizes: product.sizes || [],
+          name: product.name || 'Unknown Product',
+          price: product.price || 0
+        }));
+        setProducts(validatedProducts);
+        setFilteredProducts(validatedProducts);
+        setHasMore(false);
+      } catch (localError) {
+        setProducts(sampleProducts);
+        setFilteredProducts(sampleProducts);
+        setHasMore(false);
       }
-    };
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    loadProducts();
+  // On first mount
+  useEffect(() => {
+    loadProducts(true);
   }, []);
+
+  // Reload when category changes
+  useEffect(() => {
+    cursorRef.current = null;
+    setProducts([]);
+    setFilteredProducts([]);
+    setHasMore(true);
+    loadProducts(true);
+  }, [selectedCategory]);
 
   useEffect(() => {
     let filtered = [...products];
@@ -234,46 +244,86 @@ const ProductsPage = () => {
 
         {/* Products Grid/List */}
         {filteredProducts.length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-gray-500 text-lg">No products available in this category</p>
-          </div>
+          loading ? (
+            <div className={viewMode === 'grid' 
+              ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6'
+              : 'space-y-4'
+            }>
+              {Array.from({ length: 8 }).map((_, idx) => (
+                <div key={idx} className="animate-pulse bg-dark-card rounded-lg border border-dark-border overflow-hidden">
+                  <div className="w-full h-64 bg-gray-800" />
+                  <div className="p-4">
+                    <div className="h-5 bg-gray-700 rounded w-2/3 mb-3" />
+                    <div className="h-8 bg-gray-700 rounded w-1/3" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-12">
+              <p className="text-gray-500 text-lg">No products available in this category</p>
+            </div>
+          )
         ) : (
-          <div className={viewMode === 'grid' 
-            ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6'
-            : 'space-y-4'
-          }>
-            {filteredProducts.map((product) => (
-              <div key={product.id} className="bg-dark-card rounded-lg shadow-lg overflow-hidden hover:shadow-xl transition-shadow duration-300 border border-dark-border">
-                <div className="aspect-w-1 aspect-h-1">
-                  <img
-                    src={product.images && product.images.length > 0 ? product.images[0] : product.image}
-                    alt={product.name}
-                    className="w-full h-64 object-contain bg-gray-800"
-                  />
+          <>
+            <div className={viewMode === 'grid' 
+              ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6'
+              : 'space-y-4'
+            }>
+              {filteredProducts.map((product) => (
+                <div key={product.id} className={`relative bg-dark-card rounded-lg shadow-lg overflow-hidden hover:shadow-xl transition-shadow duration-300 border border-dark-border ${product.soldOut ? 'opacity-90' : ''}`}>
+                  <div className="relative aspect-w-1 aspect-h-1">
+                    <img
+                      src={product.images && product.images.length > 0 ? product.images[0] : product.image}
+                      alt={product.name}
+                      loading="lazy"
+                      className="w-full h-64 object-contain bg-gray-800"
+                    />
+                    {product.soldOut && (
+                      <div className="absolute top-0 left-0 right-0 bg-red-600/90 text-white text-center py-1 pointer-events-none">
+                        <span className="text-xs sm:text-sm font-extrabold tracking-widest">SOLD OUT</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="p-4">
+                    <h3 className="text-lg font-semibold text-white mb-2">{product.name}</h3>
+                    <p className={`px-3 py-1 rounded font-bold text-xl mb-3 ${product.soldOut ? 'bg-red-100 text-red-700 line-through' : 'bg-white text-dark-bg'}`}>{product.price} LE</p>
+                    {viewMode === 'list' && (
+                      <div className="mb-4">
+                        <p className="text-sm text-gray-600 mb-1">
+                          Colors: {product.colors ? product.colors.join(', ') : 'N/A'}
+                        </p>
+                        <p className="text-sm text-gray-600">
+                          Sizes: {product.sizes ? product.sizes.join(', ') : 'N/A'}
+                        </p>
+                      </div>
+                    )}
+                    {product.soldOut ? (
+                      <button disabled className="block w-full text-center cursor-not-allowed bg-gray-400 text-white py-2 rounded">Sold Out</button>
+                    ) : (
+                      <Link
+                        to={`/product/${product.id}`}
+                        className="block w-full text-center btn-primary"
+                      >
+                        View Product
+                      </Link>
+                    )}
+                  </div>
                 </div>
-                <div className="p-4">
-                  <h3 className="text-lg font-semibold text-white mb-2">{product.name}</h3>
-                  <p className="bg-white text-dark-bg px-3 py-1 rounded font-bold text-xl mb-3">{product.price} LE</p>
-                  {viewMode === 'list' && (
-                    <div className="mb-4">
-                      <p className="text-sm text-gray-600 mb-1">
-                        Colors: {product.colors ? product.colors.join(', ') : 'N/A'}
-                      </p>
-                      <p className="text-sm text-gray-600">
-                        Sizes: {product.sizes ? product.sizes.join(', ') : 'N/A'}
-                      </p>
-                    </div>
-                  )}
-                  <Link
-                    to={`/product/${product.id}`}
-                    className="block w-full text-center btn-primary"
-                  >
-                    View Product
-                  </Link>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+            <div className="mt-6 flex justify-center">
+              {hasMore && (
+                <button
+                  onClick={() => loadProducts(false)}
+                  disabled={loading}
+                  className={`btn-secondary ${loading ? 'opacity-60 cursor-not-allowed' : ''}`}
+                >
+                  {loading ? 'جارِ التحميل...' : 'تحميل المزيد'}
+                </button>
+              )}
+            </div>
+          </>
         )}
       </div>
 

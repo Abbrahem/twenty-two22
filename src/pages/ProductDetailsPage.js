@@ -18,13 +18,20 @@ const ProductDetailsPage = () => {
   const [quantity, setQuantity] = useState(1);
 
   useEffect(() => {
-    // Load product from Firebase Firestore
+    // Load product from Firebase Firestore (single doc)
     const loadProduct = async () => {
       try {
-        const firebaseProducts = await productsService.getProducts();
-        const foundProduct = firebaseProducts.find(p => p.id === id);
-        
+        const foundProduct = await productsService.getProductById(id);
         if (foundProduct) {
+          // If product is sold out, block access and redirect
+          if (foundProduct.soldOut) {
+            Swal.fire({
+              icon: 'info',
+              title: 'Sold Out',
+              text: 'This product is sold out and is no longer available.',
+            }).then(() => navigate('/'));
+            return;
+          }
           // Use only uploaded images from admin panel, fallback to single image if no images array
           const productImages = foundProduct.images && foundProduct.images.length > 0 
             ? foundProduct.images 
@@ -45,6 +52,14 @@ const ProductDetailsPage = () => {
         const foundProduct = savedProducts.find(p => p.id === id);
         
         if (foundProduct) {
+          if (foundProduct.soldOut) {
+            Swal.fire({
+              icon: 'info',
+              title: 'Sold Out',
+              text: 'This product is sold out and is no longer available.',
+            }).then(() => navigate('/'));
+            return;
+          }
           const productImages = foundProduct.images && foundProduct.images.length > 0 
             ? foundProduct.images 
             : (foundProduct.image ? [foundProduct.image] : []);
@@ -64,6 +79,10 @@ const ProductDetailsPage = () => {
   }, [id]);
 
   const handleAddToCart = () => {
+    if (product?.soldOut) {
+      Swal.fire({ icon: 'info', title: 'Sold Out', text: 'This product is sold out.' });
+      return;
+    }
     if (!selectedColor || !selectedSize) {
       Swal.fire({
         icon: 'warning',
@@ -94,6 +113,10 @@ const ProductDetailsPage = () => {
   };
 
   const handleBuyNow = () => {
+    if (product?.soldOut) {
+      Swal.fire({ icon: 'info', title: 'Sold Out', text: 'This product is sold out.' });
+      return;
+    }
     if (!selectedColor || !selectedSize) {
       Swal.fire({
         icon: 'warning',
@@ -154,11 +177,17 @@ const ProductDetailsPage = () => {
                 <img
                   src={product.images[selectedImage]}
                   alt={product.name}
+                  loading="lazy"
                   className="w-full h-96 object-contain bg-gray-50"
                 />
               ) : (
                 <div className="w-full h-96 bg-gray-200 flex items-center justify-center">
                   <span className="text-gray-400 text-lg">No Image Available</span>
+                </div>
+              )}
+              {product.soldOut && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <span className="bg-red-600 text-white px-4 py-1 rounded text-sm font-bold rotate-[-15deg]">SOLD OUT</span>
                 </div>
               )}
               
@@ -194,6 +223,7 @@ const ProductDetailsPage = () => {
                   <img
                     src={image}
                     alt={`${product.name} ${index + 1}`}
+                    loading="lazy"
                     className="w-full h-full object-contain bg-gray-50"
                   />
                 </button>

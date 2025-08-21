@@ -8,6 +8,9 @@ import {
   deleteDoc, 
   query, 
   orderBy,
+  where,
+  limit,
+  startAfter,
   onSnapshot 
 } from 'firebase/firestore';
 import { 
@@ -31,6 +34,47 @@ export const productsService = {
       return { id: docRef.id, ...productData };
     } catch (error) {
       console.error('Error adding product:', error);
+      throw error;
+    }
+  },
+
+  // Get single product by ID (fast, avoids loading all products)
+  async getProductById(productId) {
+    try {
+      const productRef = doc(db, 'products', productId);
+      const snap = await getDoc(productRef);
+      if (!snap.exists()) return null;
+      return { id: snap.id, ...snap.data() };
+    } catch (error) {
+      console.error('Error getting product by id:', error);
+      throw error;
+    }
+  },
+
+  // Get products with pagination (returns items, cursor, hasMore)
+  async getProductsPaginated({ pageSize = 12, cursor = null, category = 'all' } = {}) {
+    try {
+      let baseRef = collection(db, 'products');
+      const constraints = [];
+      if (category && category !== 'all') {
+        constraints.push(where('category', '==', category));
+      }
+      constraints.push(orderBy('createdAt', 'desc'));
+      constraints.push(limit(pageSize));
+      if (cursor) {
+        constraints.push(startAfter(cursor));
+      }
+      const q = query(baseRef, ...constraints);
+      const snapshot = await getDocs(q);
+      const items = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      const lastDoc = snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null;
+      return {
+        items,
+        cursor: lastDoc,
+        hasMore: snapshot.docs.length === pageSize
+      };
+    } catch (error) {
+      console.error('Error getting paginated products:', error);
       throw error;
     }
   },
@@ -93,6 +137,47 @@ export const productsService = {
 
 // Orders Service
 export const ordersService = {
+  // Find order by legacy id/id fields and return its Firestore doc id (or null)
+  async findOrderIdByLegacy(possibleId) {
+    try {
+      const ordersRef = collection(db, 'orders');
+      const candidates = [];
+      // Try legacyId as-is
+      try {
+        const q1 = query(ordersRef, where('legacyId', '==', possibleId));
+        const snap1 = await getDocs(q1);
+        snap1.forEach(d => candidates.push(d.id));
+      } catch (_) {}
+      // Try number
+      if (candidates.length === 0 && /^\d+$/.test(String(possibleId))) {
+        try {
+          const q2 = query(ordersRef, where('legacyId', '==', Number(possibleId)));
+          const snap2 = await getDocs(q2);
+          snap2.forEach(d => candidates.push(d.id));
+        } catch (_) {}
+      }
+      // Try embedded id as string
+      if (candidates.length === 0) {
+        try {
+          const q3 = query(ordersRef, where('id', '==', String(possibleId)));
+          const snap3 = await getDocs(q3);
+          snap3.forEach(d => candidates.push(d.id));
+        } catch (_) {}
+      }
+      // Try embedded id as number
+      if (candidates.length === 0 && /^\d+$/.test(String(possibleId))) {
+        try {
+          const q4 = query(ordersRef, where('id', '==', Number(possibleId)));
+          const snap4 = await getDocs(q4);
+          snap4.forEach(d => candidates.push(d.id));
+        } catch (_) {}
+      }
+      return candidates.length > 0 ? candidates[0] : null;
+    } catch (e) {
+      console.error('findOrderIdByLegacy failed:', e);
+      return null;
+    }
+  },
   // Test Firebase connection
   async testConnection() {
     try {
@@ -205,20 +290,58 @@ export const ordersService = {
       
       // First check if the order exists
       const orderSnap = await getDoc(orderRef);
+      let targetRef = orderRef;
+      let foundSnap = orderSnap;
       if (!orderSnap.exists()) {
-        console.error(`Order ${orderId} not found in Firestore`);
-        throw new Error('Order not found');
+        console.warn(`Order ${orderId} not found by document ID. Attempting legacyId lookup...`);
+        // Try fallback: search by legacyId field (may be number or string)
+        const ordersRef = collection(db, 'orders');
+        const candidates = [];
+        try {
+          const q1 = query(ordersRef, where('legacyId', '==', orderId));
+          const snap1 = await getDocs(q1);
+          snap1.forEach(d => candidates.push(d));
+        } catch (_) {}
+        // If not found, try as number if orderId looks numeric
+        if (candidates.length === 0 && /^\d+$/.test(String(orderId))) {
+          try {
+            const q2 = query(ordersRef, where('legacyId', '==', Number(orderId)));
+            const snap2 = await getDocs(q2);
+            snap2.forEach(d => candidates.push(d));
+          } catch (_) {}
+        }
+        // Also try embedded 'id' field if present in docs (some older saves may have kept local id inside document)
+        if (candidates.length === 0) {
+          try {
+            const q3 = query(ordersRef, where('id', '==', orderId));
+            const snap3 = await getDocs(q3);
+            snap3.forEach(d => candidates.push(d));
+          } catch (_) {}
+        }
+        if (candidates.length === 0 && /^\d+$/.test(String(orderId))) {
+          try {
+            const q4 = query(ordersRef, where('id', '==', Number(orderId)));
+            const snap4 = await getDocs(q4);
+            snap4.forEach(d => candidates.push(d));
+          } catch (_) {}
+        }
+        if (candidates.length === 0) {
+          console.error(`Order ${orderId} not found in Firestore by id or legacyId`);
+          throw new Error('Order not found');
+        }
+        foundSnap = candidates[0];
+        targetRef = doc(db, 'orders', foundSnap.id);
       }
       
-      console.log(`Order ${orderId} found, current status: ${orderSnap.data().status}`);
+      console.log(`Order ${(foundSnap && foundSnap.id) || orderId} found, current status: ${(foundSnap && foundSnap.data().status)}`);
       
-      await updateDoc(orderRef, {
+      await updateDoc(targetRef, {
         status: newStatus,
         updatedAt: new Date().toISOString()
       });
       
-      console.log(`Order ${orderId} status updated successfully to: ${newStatus}`);
-      return { success: true, orderId, newStatus };
+      console.log(`Order ${(foundSnap && foundSnap.id) || orderId} status updated successfully to: ${newStatus}`);
+      return { success: true, orderId: (foundSnap && foundSnap.id) || orderId, newStatus };
     } catch (error) {
       console.error('Error updating order status:', error);
       console.error('Error details:', {
@@ -249,9 +372,12 @@ export const imageService = {
   async uploadImages(files, productId) {
     try {
       const uploadPromises = files.map(async (file, index) => {
+        // Compress image on client before upload for faster loads
+        const compressedBlob = await imageService.compressImage(file, 1000, 1000, 0.8);
+        const toUpload = compressedBlob || file;
         const fileName = `products/${productId}/${Date.now()}_${index}_${file.name}`;
         const storageRef = ref(storage, fileName);
-        const snapshot = await uploadBytes(storageRef, file);
+        const snapshot = await uploadBytes(storageRef, toUpload);
         const downloadURL = await getDownloadURL(snapshot.ref);
         return downloadURL;
       });

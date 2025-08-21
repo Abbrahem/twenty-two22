@@ -18,7 +18,8 @@ const AdminPage = React.memo(() => {
     category: 't-shirts',
     sizes: [],
     colors: [],
-    images: []
+    images: [],
+    soldOut: false
   });
 
   // Edit product state
@@ -33,6 +34,24 @@ const AdminPage = React.memo(() => {
   const availableSizes = ['S', 'M', 'L', 'XL', 'XXL'];
   const availableColors = ['Black', 'White', 'Light Blue', 'Blue', 'Brown', 'Red', 'Pink', 'Gray'];
 
+  // Toggle product sold-out status (component scope)
+  const handleToggleSoldOut = async (product) => {
+    try {
+      const newValue = !Boolean(product.soldOut);
+      await productsService.updateProduct(product.id, { soldOut: newValue });
+      setProducts(prev => prev.map(p => p.id === product.id ? { ...p, soldOut: newValue } : p));
+      Swal.fire({
+        icon: 'success',
+        title: `Product marked as ${newValue ? 'Sold Out' : 'Available'}`,
+        timer: 1200,
+        showConfirmButton: false
+      });
+    } catch (error) {
+      console.error('Toggle soldOut failed:', error);
+      Swal.fire({ icon: 'error', title: 'Error', text: 'Failed to update sold out status' });
+    }
+  };
+
   useEffect(() => {
     // Check admin authentication
     const adminSession = localStorage.getItem('adminSession');
@@ -41,13 +60,10 @@ const AdminPage = React.memo(() => {
       return;
     }
 
-    // Test Firebase connection first
+    // Connectivity quick check
     const testConnection = async () => {
       try {
-        const isConnected = await ordersService.testConnection();
-        if (!isConnected) {
-          console.warn('Firebase connection test failed - using local fallback');
-        }
+        await ordersService.testOrdersAccess?.();
       } catch (error) {
         console.error('Connection test error:', error);
       }
@@ -60,19 +76,17 @@ const AdminPage = React.memo(() => {
         setProducts(firebaseProducts);
       } catch (error) {
         console.error('Error loading products:', error);
-        // Fallback to localStorage if Firebase fails
         const savedProducts = JSON.parse(localStorage.getItem('products') || '[]');
         setProducts(savedProducts);
       }
     };
-    
+
     const loadOrders = async () => {
       try {
         const firebaseOrders = await ordersService.getOrders();
         setOrders(firebaseOrders);
       } catch (error) {
         console.error('Error loading orders:', error);
-        // Fallback to localStorage if Firebase fails
         const savedOrders = JSON.parse(localStorage.getItem('orders') || '[]');
         setOrders(savedOrders);
       }
@@ -81,6 +95,22 @@ const AdminPage = React.memo(() => {
     testConnection();
     loadProducts();
     loadOrders();
+
+    // Realtime subscription for orders (reflect updates without reload)
+    let unsubscribeOrders;
+    try {
+      unsubscribeOrders = ordersService.onOrdersChange?.((liveOrders) => {
+        setOrders(liveOrders);
+      });
+    } catch (e) {
+      console.warn('Realtime orders subscription failed; will rely on manual loads.', e);
+    }
+
+    return () => {
+      if (typeof unsubscribeOrders === 'function') {
+        try { unsubscribeOrders(); } catch (_) {}
+      }
+    };
   }, [navigate]);
 
   const handleLogout = () => {
@@ -93,6 +123,14 @@ const AdminPage = React.memo(() => {
     setProductForm(prev => ({
       ...prev,
       [name]: value
+    }));
+  };
+
+  const handleCheckboxChange = (e) => {
+    const { name, checked } = e.target;
+    setProductForm(prev => ({
+      ...prev,
+      [name]: checked
     }));
   };
 
@@ -215,7 +253,8 @@ const AdminPage = React.memo(() => {
       const newProduct = {
         ...productForm,
         price: parseFloat(productForm.price),
-        image: productForm.images[0] // Keep first image as main for compatibility
+        image: productForm.images[0], // Keep first image as main for compatibility
+        soldOut: Boolean(productForm.soldOut)
       };
 
       // Add product to Firebase
@@ -232,7 +271,8 @@ const AdminPage = React.memo(() => {
         category: 't-shirts',
         sizes: [],
         colors: [],
-        images: []
+        images: [],
+        soldOut: false
       });
 
       Swal.fire({
@@ -293,7 +333,8 @@ const AdminPage = React.memo(() => {
         category: 't-shirts',
         sizes: [],
         colors: [],
-        images: []
+        images: [],
+        soldOut: false
       });
 
       Swal.fire({
@@ -373,12 +414,67 @@ const AdminPage = React.memo(() => {
         }
       });
 
+      // Ensure order exists in Firestore (preflight). If not, migrate from state/local.
+      let targetOrderId = orderId;
+      // 1) Try resolve by legacy lookup first (fast path)
+      console.log('[Admin] Preflight: resolving order id', orderId);
+      const resolvedId = await ordersService.findOrderIdByLegacy(orderId);
+      console.log('[Admin] Preflight: findOrderIdByLegacy ->', resolvedId);
+      if (resolvedId) {
+        targetOrderId = resolvedId;
+        console.log('[Admin] Preflight: using resolvedId as targetOrderId:', targetOrderId);
+      } else {
+        // 2) Try getting by doc id to confirm truly missing
+        let existsRemotely = true;
+        try {
+          await ordersService.getOrder(orderId);
+          console.log('[Admin] Preflight: getOrder succeeded for', orderId);
+        } catch (_) {
+          existsRemotely = false;
+          console.log('[Admin] Preflight: getOrder NOT found for', orderId);
+        }
+        // 3) If missing remotely, migrate
+        if (!existsRemotely) {
+          let currentOrder = orders.find(o => String(o.id) === String(orderId));
+          console.log('[Admin] Preflight: currentOrder from state:', currentOrder);
+          if (!currentOrder) {
+            try {
+              const localOrders = JSON.parse(localStorage.getItem('orders') || '[]');
+              currentOrder = localOrders.find(o => String(o.id) === String(orderId));
+              console.log('[Admin] Preflight: currentOrder from localStorage:', currentOrder);
+            } catch (_) {}
+          }
+          if (currentOrder) {
+            const { id: legacyId, ...orderData } = currentOrder;
+            const created = await ordersService.addOrder({ ...orderData, legacyId });
+            targetOrderId = created.id;
+            console.log('[Admin] Preflight: migrated order. New id:', targetOrderId);
+            // replace id in state and localStorage immediately
+            setOrders(prev => prev.map(o => String(o.id) === String(orderId) ? { ...o, id: targetOrderId } : o));
+            try {
+              const localOrders = JSON.parse(localStorage.getItem('orders') || '[]');
+              const migrated = localOrders.map(o => String(o.id) === String(orderId) ? { ...o, id: targetOrderId } : o);
+              localStorage.setItem('orders', JSON.stringify(migrated));
+            } catch (_) {}
+          } else {
+            // Not found locally nor remotely; abort with message
+            Swal.fire({
+              icon: 'error',
+              title: 'Order not found',
+              text: 'This order could not be found locally or on the server. Please refresh the page to sync orders.',
+            });
+            return;
+          }
+        }
+      }
+
       // Update order status in Firebase
-      await ordersService.updateOrderStatus(orderId, newStatus);
+      console.log('[Admin] Updating Firestore status for', targetOrderId, '->', newStatus);
+      await ordersService.updateOrderStatus(targetOrderId, newStatus);
       
       // Update local state
       setOrders(prev => prev.map(order => 
-        order.id === orderId ? { ...order, status: newStatus } : order
+        String(order.id) === String(targetOrderId || orderId) ? { ...order, status: newStatus } : order
       ));
       
       Swal.fire({
@@ -390,7 +486,7 @@ const AdminPage = React.memo(() => {
       });
     } catch (error) {
       console.error('Error updating order status:', error);
-      
+
       // More detailed error message
       let errorMessage = 'Failed to update order status. Please try again.';
       if (error.code === 'permission-denied') {
@@ -406,12 +502,13 @@ const AdminPage = React.memo(() => {
       } else if (error.message) {
         errorMessage = `Error: ${error.message}`;
       }
-      
+
+
       // Try fallback to localStorage if Firebase fails
       try {
         const localOrders = JSON.parse(localStorage.getItem('orders') || '[]');
         const updatedLocalOrders = localOrders.map(order => 
-          order.id === orderId ? { ...order, status: newStatus } : order
+          String(order.id) === String(orderId) ? { ...order, status: newStatus } : order
         );
         localStorage.setItem('orders', JSON.stringify(updatedLocalOrders));
         
@@ -575,6 +672,20 @@ const AdminPage = React.memo(() => {
                 </div>
               </div>
 
+              {/* Sold Out Toggle */}
+              <div>
+                <label className="inline-flex items-center space-x-3">
+                  <input
+                    type="checkbox"
+                    name="soldOut"
+                    checked={Boolean(productForm.soldOut)}
+                    onChange={handleCheckboxChange}
+                    className="h-5 w-5 text-red-600"
+                  />
+                  <span className="text-sm font-medium text-dark-gray">Mark as Sold Out</span>
+                </label>
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-dark-gray mb-2">
                   Description
@@ -726,7 +837,8 @@ const AdminPage = React.memo(() => {
                         category: 't-shirts',
                         sizes: [],
                         colors: [],
-                        images: []
+                        images: [],
+                        soldOut: false
                       });
                     }}
                     className="btn-secondary"
@@ -763,6 +875,9 @@ const AdminPage = React.memo(() => {
                         </th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Price
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Availability
                         </th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Actions
@@ -810,6 +925,14 @@ const AdminPage = React.memo(() => {
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                             {product.price} LE
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm">
+                            <button
+                              onClick={() => handleToggleSoldOut(product)}
+                              className={`px-2 py-1 rounded text-white ${product.soldOut ? 'bg-red-600' : 'bg-green-600'}`}
+                            >
+                              {product.soldOut ? 'Sold Out' : 'Available'}
+                            </button>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                             <div className="flex space-x-2">
@@ -861,11 +984,16 @@ const AdminPage = React.memo(() => {
                             {product.name}
                           </h3>
                           <p className="text-sm text-gray-500 mt-1">
-                            {categories.find(c => c.value === product.category)?.label}
-                          </p>
-                          <p className="text-sm font-semibold text-gray-900 mt-1">
                             {product.price} LE
                           </p>
+                          <div className="mt-2">
+                            <button
+                              onClick={() => handleToggleSoldOut(product)}
+                              className={`px-2 py-1 rounded text-white text-xs ${product.soldOut ? 'bg-red-600' : 'bg-green-600'}`}
+                            >
+                              {product.soldOut ? 'Sold Out' : 'Available'}
+                            </button>
+                          </div>
                           <div className="text-xs text-gray-500 mt-1">
                             Colors: {(product.colors || []).join(', ') || 'N/A'}
                           </div>
